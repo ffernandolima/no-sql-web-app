@@ -1,8 +1,8 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using NoSqlWebApp.Models;
-using System;
+using NoSqlWebApp.Providers;
+using StackExchange.Redis;
 using System.Linq;
 
 namespace NoSqlWebApp.Controllers
@@ -11,11 +11,11 @@ namespace NoSqlWebApp.Controllers
 	[ApiController]
 	public class CartController : ControllerBase
 	{
-		private readonly IDistributedCache _distributedCache;
+		private readonly IDatabase _redisDatabase;
 
-		public CartController(IDistributedCache distributedCache)
+		public CartController(IRedisDatabaseProvider redisDatabaseProvider)
 		{
-			this._distributedCache = distributedCache ?? throw new ArgumentNullException(nameof(distributedCache));
+			this._redisDatabase = redisDatabaseProvider?.GetDatabase();
 		}
 
 		// GET api/cart/1
@@ -24,7 +24,7 @@ namespace NoSqlWebApp.Controllers
 		{
 			var key = $"Cart-{userId}";
 
-			var cartJson = this._distributedCache.GetString(key);
+			var cartJson = this._redisDatabase.StringGet(key).ToString();
 
 			var cart = JsonConvert.DeserializeObject<Cart>(cartJson ?? string.Empty);
 
@@ -37,9 +37,24 @@ namespace NoSqlWebApp.Controllers
 		{
 			var key = $"Cart-{userId}";
 
-			var cart = new Cart { UserId = userId };
+			var cartJson = this._redisDatabase.StringGet(key).ToString();
 
-			this._distributedCache.SetString(key, JsonConvert.SerializeObject(cart));
+			var cart = JsonConvert.DeserializeObject<Cart>(cartJson ?? string.Empty);
+
+			if (cart == null)
+			{
+				cart = new Cart
+				{
+					UserId = userId,
+					User = new User
+					{
+						Id = userId,
+						Name = $"User{userId}"
+					}
+				};
+
+				this._redisDatabase.StringSet(key, JsonConvert.SerializeObject(cart));
+			}
 		}
 
 		// POST api/cart/1/products
@@ -48,15 +63,15 @@ namespace NoSqlWebApp.Controllers
 		{
 			var key = $"Cart-{userId}";
 
-			var cartJson = this._distributedCache.GetString(key);
+			var cartJson = this._redisDatabase.StringGet(key).ToString();
 
 			var cart = JsonConvert.DeserializeObject<Cart>(cartJson ?? string.Empty);
 
-			if (cart != null)
+			if (cart != null && !cart.Products.Any(x => x.Id == product.Id))
 			{
 				cart.Products.Add(product);
 
-				this._distributedCache.SetString(key, JsonConvert.SerializeObject(cart));
+				this._redisDatabase.StringSet(key, JsonConvert.SerializeObject(cart));
 			}
 		}
 
@@ -66,19 +81,19 @@ namespace NoSqlWebApp.Controllers
 		{
 			var key = $"Cart-{userId}";
 
-			var cartJson = this._distributedCache.GetString(key);
+			var cartJson = this._redisDatabase.StringGet(key).ToString();
 
 			var cart = JsonConvert.DeserializeObject<Cart>(cartJson ?? string.Empty);
 
 			if (cart != null)
 			{
-				var product = cart.Products.SingleOrDefault(x => x.Id == id);
+				var product = cart.Products?.SingleOrDefault(x => x.Id == id);
 
 				if (product != null)
 				{
-					cart.Products.Remove(product);
+					cart.Products?.Remove(product);
 
-					this._distributedCache.SetString(key, JsonConvert.SerializeObject(cart));
+					this._redisDatabase.StringSet(key, JsonConvert.SerializeObject(cart));
 				}
 			}
 		}
@@ -89,7 +104,7 @@ namespace NoSqlWebApp.Controllers
 		{
 			var key = $"Cart-{userId}";
 
-			this._distributedCache.Remove(key);
+			this._redisDatabase.KeyDelete(key);
 		}
 	}
 }

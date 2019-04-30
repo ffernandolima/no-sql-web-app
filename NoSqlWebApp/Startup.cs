@@ -3,7 +3,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.PlatformAbstractions;
 using NoSqlWebApp.Providers;
+using Swashbuckle.AspNetCore.Swagger;
+using System.IO;
 
 namespace NoSqlWebApp
 {
@@ -21,13 +24,23 @@ namespace NoSqlWebApp
 		{
 			services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
 
-			services.AddDistributedRedisCache(options =>
-			{
-				options.Configuration = "127.0.0.1:6379";
-				options.InstanceName = "master";
-			});
-
 			services.AddTransient<IRedisDatabaseProvider, RedisDatabaseProvider>();
+
+			services.AddSwaggerGen(options =>
+			{
+				options.SwaggerDoc("v1", new Info
+				{
+					Title = "NoSQL Web App",
+					Version = "v1",
+					Description = "NoSQL Web App"
+				});
+
+				var appPath = PlatformServices.Default.Application.ApplicationBasePath;
+				var appName = PlatformServices.Default.Application.ApplicationName;
+				var filePath = Path.Combine(appPath, $"{appName}.xml");
+
+				options.IncludeXmlComments(filePath);
+			});
 		}
 
 		// This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -45,6 +58,13 @@ namespace NoSqlWebApp
 
 			app.UseHttpsRedirection();
 			app.UseMvc();
+
+			app.UseSwagger(setupAction: null);
+
+			app.UseSwaggerUI(options =>
+			{
+				options.SwaggerEndpoint("/swagger/v1/swagger.json", "NoSQL Web App");
+			});
 		}
 	}
 }
